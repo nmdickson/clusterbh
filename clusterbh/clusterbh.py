@@ -1,5 +1,6 @@
 import numpy as np
-from ssptools import evolve_mf
+import logging
+import ssptools
 from scipy.special import hyp2f1
 from scipy.integrate import solve_ivp
 
@@ -181,7 +182,7 @@ class clusterBH:
         Core collapse in Myrs.
     '''
 
-    def __init__(self, N, rhoh, *, m0=0.606, fc=1, rg=8, Z=0.0002, mbh=20, f=1,
+    def __init__(self, N0, rhoh, *, fc=1, rg=8, Z=0.0002, mbh=20, f=1,
                  Mval=1.5, zeta=0.1, a0=1, a2=0, kick=True, tsev=2, n=1.5, r=1.,
                  alpha_c=0.0065, gamma=0.02, kin=0.9,
                  alpha=-0.5, mlo=5, mup=50, sigmans=265, mns=1.4,
@@ -194,8 +195,7 @@ class clusterBH:
         self.G = 0.004499  # pc^3 /Msun /Myr^2
 
         # Cluster ICs
-        self.N = N
-        self.m0 = m0
+        self.N0 = N0
         self.fc = fc
         self.rg = rg
         self.Z = Z
@@ -250,7 +250,10 @@ class clusterBH:
 
         self.FeH = np.log10(self.Z / 0.014)
 
-        self.M0 = self.m0 * N
+        self.imf = ssptools.masses.PowerLawIMF(m_breaks, a_slopes, N0=N0)
+        self.m0 = self.imf.mmean
+
+        self.M0 = self.m0 * N0
         self.rh0 = (3 * self.M0 / (8 * np.pi * rhoh))**(1. / 3)
 
         self.vesc0 = 50 * (self.M0 / 1e5)**(1. / 3) * (rhoh / 1e5)**(1. / 6)
@@ -258,15 +261,19 @@ class clusterBH:
         self.vesc0 *= self.fc  # Augment the value for different King models.
 
         # Implement kicks for this IMF with such metallicity.
-        self.ibh = evolve_mf.InitialBHPopulation.from_IMF(
+        self.ibh = ssptools.InitialBHPopulation.from_powerlaw(
             self.m_breaks, self.a_slopes, self.nbins,
-            self.FeH, N0=self.N, vesc=self.vesc0, natal_kicks=self.kick
+            self.FeH, N0=self.N0, vesc=self.vesc0, natal_kicks=self.kick
         )
 
         self.Mbh0 = self.ibh.Mtot
-        self.mbh = np.sum(self.ibh.M) / np.sum(self.ibh.N)
+        self.Nbh0 = self.ibh.Ntot
+        # self.mbh = np.sum(self.ibh.M) / np.sum(self.ibh.N)
 
-        self.M0 = self.M0 + self.Mbh0 - self.ibh.Ms_lost
+        # TODO not sure what should be re-comped after making BHs
+        # total mass = initial mass - stellar mass lost + BH mass formed
+        self.M0 = (self.M0 - self.ibh.Ms_lost) + self.Mbh0
+        self.N0 = (self.N0 - self.ibh.Ns_lost) + self.Nbh0
         self.f0 = self.Mbh0 / self.M0
 
         # Check if we have kicks so that we can fix mb and compute the upper
@@ -283,7 +290,7 @@ class clusterBH:
                               self.Mbh0 / (self.Mbh0 + self.M0), 0)
         self.tcc = self.ntrh * self.trh0
 
-        self.evolve(N, rhoh)
+        self.evolve(N0, rhoh)
 
     def _rt(self, M):
         '''Tidal radius.'''
