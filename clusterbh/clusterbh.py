@@ -188,7 +188,8 @@ class clusterBH:
                  tend=13.8e3, dtout=2, Mst_min=100, integration_method="RK45",
                  tidal=True, escapers=False, Rht=0.125, Vc=220.,
                  a_slopes=[-1.3, -2.3, -2.3], m_breaks=[0.08, 0.5, 1., 150.],
-                 nbins=[5, 5, 20]):
+                 nbins=[5, 5, 20],
+                 ntrh=3.21, beta=0.0028, nu=0.0823, a1=1.47):
 
         self.G = 0.004499  # pc^3 /Msun /Myr^2
 
@@ -214,10 +215,10 @@ class clusterBH:
         self.kin = kin
 
         # Parameters that were fit to N-body.
-        self.ntrh = 3.21
-        self.beta = 0.0028
-        self.nu = 0.0823
-        self.a1 = 1.47
+        self.ntrh = ntrh  # 3.21
+        self.beta = beta  # 0.0028
+        self.nu = nu  # 0.0823
+        self.a1 = a1  # 1.47
 
         # BHMF
 
