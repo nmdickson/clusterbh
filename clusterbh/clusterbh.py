@@ -275,8 +275,10 @@ class clusterBH:
 
         # TODO not sure what should be re-comped after making BHs
         # total mass = initial mass - stellar mass lost + BH mass formed
-        self.M0 = (self.M0 - self.ibh.Ms_lost) + self.Mbh0
-        self.N0 = (self.N0 - self.ibh.Ns_lost) + self.Nbh0
+        # But this is stellar mass actually, so let's just ignore it for now
+        # self.M0 = self.M0 - self.ibh.Ms_lost
+        # self.N0 = self.N0 - self.ibh.Ns_lost
+
         self.f0 = self.Mbh0 / self.M0
 
         # Check if we have kicks so that we can fix mb and compute the upper
