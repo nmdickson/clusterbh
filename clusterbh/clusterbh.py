@@ -189,7 +189,7 @@ class clusterBH:
                  tend=13.8e3, dtout=2, Mst_min=100, integration_method="RK45",
                  tidal=True, escapers=False, Rht=0.125, Vc=220.,
                  a_slopes=[-1.3, -2.3, -2.3], m_breaks=[0.08, 0.5, 1., 150.],
-                 nbins=[5, 5, 20],
+                 nbins=[5, 5, 20], ibh_kwargs=None,
                  ntrh=3.21, beta=0.0028, nu=0.0823, a1=1.47):
 
         self.G = 0.004499  # pc^3 /Msun /Myr^2
@@ -260,10 +260,13 @@ class clusterBH:
 
         self.vesc0 *= self.fc  # Augment the value for different King models.
 
+        if ibh_kwargs is None:
+            ibh_kwargs = {}
+
         # Implement kicks for this IMF with such metallicity.
         self.ibh = ssptools.InitialBHPopulation.from_powerlaw(
-            self.m_breaks, self.a_slopes, self.nbins,
-            self.FeH, N0=self.N0, vesc=self.vesc0, natal_kicks=self.kick
+            self.m_breaks, self.a_slopes, self.nbins, self.FeH, N0=self.N0,
+            vesc=self.vesc0, natal_kicks=self.kick, **ibh_kwargs
         )
 
         self.Mbh0 = self.ibh.Mtot
