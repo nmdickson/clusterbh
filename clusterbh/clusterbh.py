@@ -32,15 +32,28 @@ class clusterBH:
         Prefactor that relates relaxation of stars with the half mass
         relaxation. Defaults to 1.
 
-    Mval : float, optional
-        Contribution of stellar evolution in half mass radius after core
-        collapse. Defaults to 1.5.
+    Mval0 : float, optional
+        Initial value for mass segregation, taken for a homologous distribution
+        of stars.
+
+    Mval_cc : float, optional
+        Contribution of stellar evolution in half-mass radius after
+        core collapse.
+
+    Mvalf : float, optional
+        Final parameter for mass segregation.
 
     zeta : float, optional
         Energy loss per half mass relaxation. Defaults to 0.1.
 
     a0 : float, optional
         Fix zeroth order in ψ. Defaults to 1.
+
+    a11 : float, optional
+        First prefactor in ψ.
+
+    a12 : float, optional
+        Second prefactor in ψ.
 
     a2 : float, optional
         Ignore 2nd order in ψ for now. Defaults to 0.
@@ -58,6 +71,12 @@ class clusterBH:
         Ratio of the half mass radius over the Virial radius initially.
         Defaults to 1.0.
 
+    x : float, optional
+        Exponent used for finite escape time from Lagrange points.
+
+    tcross_index : float, optional
+        Prefactor for half mass crossing time defined as index/sqrt(G rhoh).
+
     alpha_c : float, optional
         0.65% Evaporation of stars initially, approximating tides.
         Defaults to 0.0065.
@@ -66,23 +85,35 @@ class clusterBH:
         Parameter of Coulomb logarithm as used in the cmc models.
         Defaults to 0.02.
 
+    gamma0 : float, optional
+        An initial value for gamma exponent in psi.
+
     kin : float, optional
         Kinetic term of escaping stars. Defaults to 0.9.
 
-    alpha : float, optional
-        Defaults to -0.5.
+    bmax : float, optional
+        Exponent for parameter psi. The choices are between 2 and 2.5,
+        the former indicates the same velocity dispersion between components
+        while the latter complete equipartition.
 
-    mlo : float, optional
-        Defaults to 5.
+    b1 : float, optional
+        Correction to exponent of mbh / m in parameter psi. It appears
+        because the properties within the half-mass radius differ.
 
-    mup : float, optional
-        Defaults to 50.
+    b2 : float, optional
+        Exponent of the BH fraction for the BH ejection rate. Taken from
+        Pina (2023).
 
-    sigmans : float, optional
-        Velocity dispersion in km/s. Defaults to 265.
+    b3 : float, optional
+        Exponent of the BH fraction for the BH ejection rate. Taken from
+        Pina (2023).
 
-    mns : float, optional
-        Mass of Neutron stars in Msun. Defaults to 1.4.
+    b4 : float, optional
+        Exponent of the mass ratio for the BH ejection rate.
+
+    fbh_crit : float, optional
+        Critical value of the BH fraction to use in exponent gamma.
+        It is a pair with gamma0.
 
     tend : float, optional
         Final time instance where we integrate to. Defaults to 13.8e3.
@@ -123,20 +154,13 @@ class clusterBH:
     ----------
     ntrh : float
         Number of initial relaxations in order to compute core collapse
-        instance. By default, has been fit to N-body models to give a value
-        of 3.21.
+        instance.
 
     beta : float
-        Ejection rate of black holes from the core per relaxation. By default,
-        has been fit to N-body models to give a value of 0.0028.
+        Ejection rate of black holes from the core per relaxation.
 
     nu : float
-        Mass loss rate of stars. By default, has been fit to N-body models to
-        give a value of 0.0823.
-
-    a1 : float
-        Linear order in ψ. By default, has been fit to N-body models to give a
-        value of 1.47.
+        Mass loss rate of stars.
 
     FeH : float
         Metallicity, computed as log10(Z / Zsolar) where Zsolar=0.014.
@@ -156,9 +180,6 @@ class clusterBH:
 
     M0 : float
         remove BH st.ev. losses
-
-    mbh : float
-        average BH mass (initially)
 
     f0 : float
         Initial fraction of black holes. It should give us something close to
@@ -182,52 +203,58 @@ class clusterBH:
         Core collapse in Myrs.
     '''
 
-    def __init__(self, N0, rhoh, *, fc=1, rg=8, Z=0.0002, mbh=20, f=1,
-                 Mval=1.5, zeta=0.1, a0=1, a2=0, kick=True, tsev=2, n=1.5, r=1.,
-                 alpha_c=0.0065, gamma=0.02, kin=0.9,
-                 alpha=-0.5, mlo=5, mup=50, sigmans=265, mns=1.4,
+    def __init__(self, N0, rhoh, *, fc=1, rg=8, Z=0.0002, f=1,
+                 Mval0=3.0, Mval_cc=3, Mvalf=4, zeta=0.070272,
+                 a0=1, a11=2, a12=0.15, a2=0, kick=True,
+                 tsev=1, n=2.974729, r=0.8, x=0.75, tcross_index=1,
+                 alpha_c=0.0, gamma=0.02, gamma0=2.12, kin=0.9,
+                 bmax=2.215548, b1=1, b2=1.5, b3=0.22, b4=0.4, fbh_crit=0.1,
                  tend=13.8e3, dtout=2, Mst_min=100, integration_method="RK45",
-                 tidal=True, escapers=False, Rht=0.125, Vc=220.,
+                 tidal=True, escapers=False, Rht=0.106094, Vc=220., Zsolar=0.02,
                  a_slopes=[-1.3, -2.3, -2.3], m_breaks=[0.08, 0.5, 1., 150.],
                  nbins=[5, 5, 20], ibh_kwargs=None,
-                 ntrh=3.21, beta=0.0028, nu=0.0823, a1=1.47):
+                 ntrh=0.036606, beta=0.055909, nu=0.072):
 
         self.G = 0.004499  # pc^3 /Msun /Myr^2
+        self.Zsolar = Zsolar
 
         # Cluster ICs
         self.N0 = N0
         self.fc = fc
         self.rg = rg
         self.Z = Z
-        self.f = f
-        self.Mval = Mval
 
         # Model parameters
-        self.zeta = zeta
         self.a0 = a0
+        self.a11 = a11
+        self.a12 = a12
         self.a2 = a2
-        self.kick = kick
         self.tsev = tsev
-        self.n = n
+        self.x = x
         self.r = r
+        self.f = f
+        self.tcross_index = tcross_index
         self.alpha_c = alpha_c
         self.gamma = gamma
+        self.gamma0 = gamma0
         self.kin = kin
+        self.Mval0 = Mval0
+        self.Mval_cc = Mval_cc
+        self.Mvalf = Mvalf
+        self.bmax = bmax
+        self.b1 = b1
+        self.b2 = b2
+        self.b3 = b3
+        self.b4 = b4
+        self.fbh_crit = fbh_crit
 
         # Parameters that were fit to N-body.
-        self.ntrh = ntrh  # 3.21
-        self.beta = beta  # 0.0028
-        self.nu = nu  # 0.0823
-        self.a1 = a1  # 1.47
-
-        # BHMF
-
-        self.alpha = alpha
-        self.mlo = mlo
-        self.mup = mup
-
-        self.sigmans = sigmans
-        self.mns = mns
+        self.zeta = zeta
+        self.beta = beta
+        self.nu = nu
+        self.n = n
+        self.ntrh = ntrh
+        self.Rht = Rht
 
         # Some integration params.
         self.tend = tend
@@ -238,17 +265,25 @@ class clusterBH:
         self.output = False  # Just a string in order to save the results.
         self.outfile = "cluster.txt"  # File to save the results if needed.
 
-        # Mass loss mechanism
+        # Conditions
+        self.kick = kick
         self.tidal = tidal
         self.escapers = escapers
-        self.Rht = Rht
+        # self.two_relaxations = two_relaxations
+        # self.mass_segregation = mass_segregation
+        # self.finite_escape_time = finite_escape_time
+        # self.running_psi_exponent = running_psi_exponent
+        # self.bh_exponent_correction = bh_exponent_correction
+        # self.running_bh_ejection_rate = running_bh_ejection_rate
+        # self.running_stellar_ejection_rate = running_stellar_ejection_rate
+
         self.Vc = Vc
 
         self.a_slopes = a_slopes
         self.m_breaks = m_breaks
         self.nbins = nbins
 
-        self.FeH = np.log10(self.Z / 0.014)
+        self.FeH = np.log10(self.Z / self.Zsolar)
 
         self.imf = ssptools.masses.PowerLawIMF(m_breaks, a_slopes, N0=N0)
         self.m0 = self.imf.mmean
@@ -271,7 +306,7 @@ class clusterBH:
 
         self.Mbh0 = self.ibh.Mtot
         self.Nbh0 = self.ibh.Ntot
-        # self.mbh = np.sum(self.ibh.M) / np.sum(self.ibh.N)
+        self.mbh0 = self.Mbh0 / self.Nbh0
 
         # TODO not sure what should be re-comped after making BHs
         # total mass = initial mass - stellar mass lost + BH mass formed
@@ -281,21 +316,74 @@ class clusterBH:
 
         self.f0 = self.Mbh0 / self.M0
 
-        # Check if we have kicks so that we can fix mb and compute the upper
-        # mass of black holes at each time instance.
-        if (self.kick):
-            self.mb = ((9 * np.pi / 2)**(1. / 6)
-                       * self.sigmans * self.mns / self.vesc0)
-
         self.Nbh0 = np.round(self.ibh.Ntot)
         self.Mst_lost = self.ibh.Ms_lost
         self.t_bhcreation = self.ibh.age
 
-        self.trh0 = self._trh(self.M0 + self.Mbh0, self.rh0,
-                              self.Mbh0 / (self.Mbh0 + self.M0), 0)
+        # self.trh0 = self._trh(self.M0 + self.Mbh0, self.rh0,
+        #                       self.Mbh0 / (self.Mbh0 + self.M0), 0)
+        # self.tcc = self.ntrh * self.trh0
+
+        # Initial relaxation is extracted as a function of the BH population so
+        # that clusters with different metallicities and BH fractions can have
+        # a different core collapse.
+        self.psi0 = (self.a0 + self.a11 * self.a12
+                     * self.f0**self.b1 * (self.mbh0 / self.m0)**(self.b2))
+        self.trh0 = (0.138 * self.N0
+                     / (self.psi0 * np.log(self.gamma * self.N0))
+                     * np.sqrt(self.rh0**3 / (self.G * self.M0)))
         self.tcc = self.ntrh * self.trh0
 
+        # if self.bh_exponent_correction:
+        #     self.b4 = self.b4 * self.b2
+
         self.evolve(N0, rhoh)
+
+    def deplete_BHMF(self, M_eject, M_BH, N_BH):
+        '''
+        Function to determine by how much the BHMF changes, given a particular
+        mass loss.
+        '''
+
+        # Avoid altering initial BH bins.
+        M_BH, N_BH = M_BH.copy(), N_BH.copy()
+
+        # Remove BH starting from Heavy to Light.
+        j = M_BH.size
+
+        while M_eject != 0:
+            j -= 1
+
+            # Stop ejecting if trying to eject more mass than there is in BHs.
+            if j < 0:
+                break
+
+            # Remove entirety of this mass bin.
+            if M_BH[j] < M_eject:
+                M_eject -= M_BH[j]
+                M_BH[j] = 0
+                N_BH[j] = 0
+                continue
+
+            # Remove required fraction of the last affected bin.
+            else:
+                m_BH_j = M_BH[j] / N_BH[j]
+                M_BH[j] -= M_eject
+                N_BH[j] -= M_eject / m_BH_j
+
+                break
+
+        return M_BH, N_BH
+
+    def _mbh(self, Mbh):
+        '''Average BH mass.'''
+
+        # Determine amount of BH mass (total) to eject.
+        M_eject = self.ibh.Mtot - Mbh
+
+        # Deplete the initial BH MF based on this M_eject.
+        M_BH, N_BH = self.deplete_BHMF(M_eject, self.ibh.M, self.ibh.N)
+        return M_BH.sum() / N_BH.sum()
 
     def _rt(self, M):
         '''Tidal radius.'''
@@ -305,85 +393,128 @@ class clusterBH:
     def _mst(self, t):
         '''Average mass of stars, due to stellar evolution.
         It takes as an input either a value or an array for simplicity.
-        This is really sloppy.
         Does not take into consideration the effect of tides.
+        In that case, it should be derived from differential equations.
         '''
         if t > self.tsev:
             return self.m0 * (t / self.tsev)**(-self.nu)
         else:
             return self.m0
 
-    def _psi(self, fbh):
+    def _psi(self, fbh, M, mbh, t):
         '''Friction term ψ in the relaxation.
         It is characteristic of mass spectrum, here due to black holes.
         We neglect O(2) corrections.
         '''
-        psi = self.a0 + self.a1 * abs(fbh) / 0.01
+
+        # This means that BHs have been ejected so we have no psi
+        if M * fbh < mbh:
+            return self.a0
+
+        # Number of particles
+        Np = self._N(M, fbh, mbh, t)
+
+        # Average mass
+        mav = M / Np
+
+        # Exponent.
+        gamma = self.bmax
+        # if self.running_exponent:
+        #     gamma = self.bmax - (self.bmax-self.gamma0) * fbh / self.fbh_crit
+        # else:
+        #     gamma = self.bmax
+
+        # Approximate form
+        # Parameters a11, a12, b1 and b2 relate the properties within rh
+        # to the global properties.
+        # This statement is needed otherwise mbh gets nan values and cannot
+        # give correct results.
+        psi = (self.a0 + self.a11 * (self.a12)**(gamma - 1)
+               * abs(fbh)**self.b1 * (mbh / mav)**((gamma - 1) * self.b2))
+
+        # Complete expression if we include the contribution from stars as well
+        # We have self.a0=1.
+        # psi = (self.a0 * (mst / mav)**(self. b0 * (gamma - 1))
+        #        * (1 - self. a11 * fbh**self.b1)
+        #        + self.a11 * self.a12**(gamma - 1)
+        #        * fbh**self.b1 * (mbh / mav)**(self.b2 * (gamma - 1)))
+
         return psi
 
-    def _N(self, M, fbh, t):
+    def _N(self, M, fbh, mbh, t):
         '''
         Number of particles, approximately stars. We write it as a function of
         the total mass and the black hole fraction. The number of black holes
         is a minor correction since typically 1 star in 1e3 becomes a black
         hole, so clusters with 1e6 have 1e3 black holes roughly speaking, a
-        small correction. If mbh is needed, one can add a term M * fbh / mbh.
+        small correction.
         '''
         # Varying average mass for stars. Mass of BHs is constant for now.
-        return np.round(M * ((1 - fbh) / self._mst(t))).astype(int)
+        Np = M * ((1 - fbh) / self._mst(t))
 
-    def _trh(self, M, rh, fbh, t):
+        # Include BHs if we have them
+        # Np += M * fbh / mbh if (M * fbh < mbh) else 0
+
+        return Np
+
+    def _trh(self, M, rh, fbh, mbh, t):
         '''
         Relaxation as defined by Spitzer. Here we consider the effect of mass
-        spectrum due to black holes. When they vanish, we get unity, which is
-        not entirely true.
+        spectrum due to black holes.
         '''
-        Np = self._N(M, fbh, t)
+        Np = self._N(M, fbh, mbh, t)
+
+        mav = M / Np
+
         if M > 0 and rh > 0:
             return (0.138 * np.sqrt(M * rh ** 3 / self.G)
-                    / (self._mst(t) * self._psi(fbh) * np.log(self.gamma * Np)))
+                    / (mav * self._psi(fbh, M, mbh, t)
+                       * np.log(self.gamma * Np)))
         else:
             return 1e-99
 
-    def find_mmax(self, Mbh):
-        '''
-        We find the maximum value of the black hole mass at each time instance.
-        We assume that heavy black holes are the only ones ejected from the
-        core, a decent approximation.
-        '''
-        a2 = self.alpha + 2
+    def _trhstar(self, M, rh, fbh, mbh, t):
+        '''Relaxation for stars depending on the assumptions.
+        Here we include only one assumption.'''
 
-        if (self.kick):
-            def integr(mm, qmb, qlb):
-                a2 = self.alpha + 2
-                b = a2 / 3
-                h1 = hyp2f1(1, b, b + 1, -qmb ** 3)
-                h2 = hyp2f1(1, b, b + 1, -qlb ** 3)
+        # Half mass relaxation.
+        #  trh = self._trh(M, rh, fbh, mbh, t)
 
-                return mm ** a2 * (1 - h1) - self.mlo ** a2 * (1 - h2)
+        # Average mass.
+        Np = self._N(M, fbh, mbh, t)
+        mav = M / Np
 
-            # invert eq. 52 from AG20
-            Np = 1000
-            mmax_ = np.linspace(self.mlo, self.mup, Np)
-            # qml = mmax_ / self.mlo
-            qmb, qlb = mmax_ / self.mb, self.mlo / self.mb
+        # Relaxation for evaporation
+        if M > 0 and rh > 0:
 
-            A = self.Mbh0 / integr(self.mup, self.mup / self.mb, qlb)
+            trhstar = (0.138 * np.sqrt(M * rh ** 3 / self.G)
+                       / (mav * np.log(self.gamma * Np)))
+        else:
+            trhstar = 1e-99
 
-            Mbh_ = A * integr(mmax_, qmb, qlb)
-            mmax = np.interp(Mbh, Mbh_, mmax_)
+        # trhstar = trhstar if (self.two_relaxations) else trh
+        return trhstar
+
+    def _tcr(self, M, rh):
+        '''Crossing time within the half-mass radius in Myrs.'''
+
+        # Prefactor derived from the expression tcr = 1 / sqrt(G rhoh).
+        # If the numerator is not 1, it needs to be changed.
+        k = 2 * np.sqrt(2 * np.pi / 3) * self.tcross_index
+
+        if M > 0 and rh > 0:
+            return k * np.sqrt(rh**3 / (self.G * M))
 
         else:
-            # eq 51 in AG20
-            mmax = (
-                Mbh / self.Mbh0 * (self.mup**a2 - self.mlo**a2) + self.mlo**a2
-            )**(1. / a2)
+            return 1e-99
 
-        # TBD: Set to 0 when MBH = 0
-        return mmax
-
-    def _logcheck(self, t, y):
-        return 0 if (y[0] > self.Mst_min) else -1
+    def _xi(self, rh, rt):
+        '''Tides.
+        Here one could perhaps approach tides differently, perhaps with an
+        exponential function.'''
+        # Power-law for generality.
+        xi = 3 * self.zeta / 5 * (rh / rt / self.Rht)**self.n
+        return xi
 
     def odes(self, t, y):
         '''The differential equations to be solved.'''
@@ -391,6 +522,9 @@ class clusterBH:
         Mst = y[0]  # Mass of stars.
         Mbh = y[1]  # Mass of black holes.
         rh = y[2]  # Half mass radius.
+
+        # Mval = y[3]  # Parameter for mass segregation.
+        Mval = self.Mval0
 
         # Total mass of the cluster.
         # It overestimates a bit initially because we assume Mbh>0 from start.
@@ -400,21 +534,30 @@ class clusterBH:
         # For the same reason it whould be considered after core collapse.
         fbh = Mbh / M
 
-        rt = self._rt(M)
-        trh = self._trh(M, rh, fbh, t)  # Relaxation
         tcc = self.tcc   # Core collapse.
         tsev = self.tsev  # Stellar evolution.
-        # Np = self._N(M, fbh, t)  # Number of particles
-        psi = self._psi(fbh)  # Friction term.
         tbh = self.t_bhcreation  # Time instance when black holes are created.
-        trhstar = trh * self.f * psi  # If not needed, change to trh.
+
+        # mst = self._mst(t)  # Average stellar mass
+        mbh = self._mbh(Mbh)  # Extract the average BH mass
+        if Mbh < mbh:
+            Mbh = 0
+
+        rt = self._rt(M)
+        trh = self._trh(M, rh, fbh, mbh, t)  # Relaxation
+        trhstar = self._trhstar(M, rh, fbh, mbh, t)  # Evaporation time scale
+        # tcr = self._tcr(M, rh)  # Crossing time.
+        alpha_c = 0
 
         # At first the derivatives are set equal to zero, then we build them up.
         Mst_dot, rh_dot, Mbh_dot = 0, 0, 0
+        # Mval_dot = 0
 
-        # This would be the term for mass segregation.
-        # Here it is kept constant and equal to 3.
-        M_val = 3  # if t < tcc else self.Mval
+        # This parameter described mass segregation, used in the equation
+        # for rh. The reason why it changes to a constant value after core
+        # collapse is because of Henon's statement, here described by
+        # parameter zeta.
+        Mval = self.Mval0 if t < tcc else self.Mval_cc
 
         Mst_dotsev = 0
 
@@ -428,7 +571,9 @@ class clusterBH:
             # The cluster expands for this reason. It is because we assume a
             # uniform distribution initially. With mass segregation up until
             # core collapse, we should get a better description.
-            rh_dot -= (M_val - 2) * Mst_dotsev / M * rh
+            rh_dot -= (Mval - 2) * Mst_dotsev / M * rh
+            # Evolution of parameter describing mass segregation
+            # Mval_dot += Mval * (self.Mvalf - Mval) / trh
 
         if tcc < t < tbh:
 
@@ -440,62 +585,88 @@ class clusterBH:
 
         if (self.tidal):  # Check if we have tides.
 
-            # Power-law for generality. The user may choose any form they wish.
-            xi = 0.6 * self.zeta * (rh / rt / self.Rht) ** self.n
+            xi = self._xi(rh, rt)  # Tides.
 
-            # Total stellar mass loss rate is the combination of ejections and
-            # tides. alpha_c is treated as ejections, not a constant
-            # evaporation rate, and thus it is a property of the cluster and
-            # not the tidal field.
-            xi_total = xi + self.alpha_c if t > tcc else xi
+            # Check if we have finite escape time from the Lagrange points.
+            # if self.finite_escape_time:
+            #     xi *= self.p * (trhstar / tcr) ** (1 - self.x)
 
-            # Mass loss rate of stars due to tides. We add this to the already
-            # known expression for mass-loss rate due to stellar evolution.
-            Mst_dot -= xi * M / trhstar + (xi_total - xi) * M / trh
+            # Central stellar ejection rate. If we were to include ejections
+            # before tcc, this expression needs to be modified.
+            # if t >= tcc:
+            #     if self.running_stellar_ejection_rate:
+            #         alpha_c = self.alpha_c * (1 - 5 * xi / (3 * self.zeta))
+            #     else:
+            #         alpha_c = self.alpha_c
 
-        # Note that we now subtract 2ν from the +ν term already in Mst_dot.
-        # This is an approximation since heavy stars residing in a shell
-        # around the core should contribute. This is captured better if we
-        # use a parameter that describes mass segregation.
+            # Mass loss rate of stars due to tides (and central ejections).
+            # Mst_dot -= xi * Mst / trhstar + alpha_c * self.zeta * M / trh
+            Mst_dot -= xi * Mst / trhstar + self.alpha_c * self.zeta * M / trh
+
+        # Case of isolated cluster, it is described by central ejections only,
+        # if present
+        else:
+            alpha_c += self.alpha_c if t >= tcc else 0
+            Mst_dot -= alpha_c * self.zeta * M / trh
+
+        # Impact of tidal mass loss to the size of the cluster.
         rh_dot += 2 * Mst_dot / M * rh
 
         # Correct the total stellar mass loss rate.
         Mst_dot += Mst_dotsev
 
-        # Keep only evaporation, not ejections here so use xi and not xi_total.
-        # If escapers carry negative energy as they leave, the half mass radius
-        # is expected to increase since it is similar to emitting positive
-        # energy. The effect is proportional to tides.
-        if self.escapers:
-            rh_dot += 6 * xi / self.r / trhstar * (1 - self.kin) * rh ** 2 / rt
-
-        # BH escape.
-        # It occurs after core collapse, in the balanced phase of the cluster.
-
         # Expansion due to energy loss. It is due to the fact that the cluster
         # has a negative heat capacity due to its gravitational nature.
-        if t >= tcc:
-            rh_dot += self.zeta * rh / trh
+        rh_dot += self.zeta * rh / trh if t >= tcc else 0
 
-        # Check if we have black holes so that we can evolve them as well.
+        # Effect of evaporating stars on the half mass radius.
+        # Keep only evaporation, not ejections here so use xi and not xi_total.
+        # # If escapers carry negative energy as they leave, the half mass
+        # radius is expected to increase since it is similar to emitting
+        # positive energy. The effect is proportional to tides.
+        # if self.escapers:
+        #     rh_dot += 6 * xi / self.r / trhstar * (1 - self.kin) * rh**2 / rt
+
+        Mbh_dot_alpha = -alpha_c * self.zeta * M / trh if tcc <= t < tbh else 0
+
+        # Check if we have BHs so that we can evolve them as well.
         if Mbh > 0 and t >= tcc:
-            # Ejection each relaxation.
-            Mbh_dot -= self.beta * M / trh
-            # Contraction since black holes are removed.
+            # Normalising with q0 and f0 should give the same BH ejection
+            # initially for all clusters but then it evolves.
+
+            # Varying ejection rate of black holes.
+            # It becomes more difficult to eject them as fbh tends to zero.
+            # Exponents may need to change if we use the properties within rh.
+            # if self.running_bh_ejection_rate and (0 < fbh):
+            #     beta = (self.beta * (abs(fbh) / self.fcc)**self.b3
+            #             * (self.q0 * mbh / mst)**self.b4)
+            # else:
+            #     beta = self.beta
+
+            # Ejection of BHs each relaxation
+            # s = (fbh / 0.006)**0.1 if fbh < 0.006 else (0.006 / fbh)**0.064
+            Mbh_dot -= self.beta * self.zeta * M / trh  # * s
+            # If the tidal field was important, an additional
+            # mass-loss mechanism would be needed.
+
+            # Contraction since BHs are removed.
             rh_dot += 2 * Mbh_dot / M * rh
 
-        derivs = [Mst_dot]
-        derivs.append(Mbh_dot)
-        derivs.append(rh_dot)
+        # This happens because alpha_c, if present, participates already in rh,
+        # it is not needed twice in the formalism, from stars and from BHs.
+        Mbh_dot += Mbh_dot_alpha
+
+        derivs = np.array([Mst_dot, Mbh_dot, rh_dot])
 
         # Return the derivatives in an array.
-        return np.array(derivs, dtype=object)
+        return derivs
 
     # Extract the solution using the above differential equations.
     def evolve(self, N, rhoh):
-        Mst = [self.M0]  # Stellar mass initially.
+        Mst = [self.M0]  # Initial Stellar mass.
         Mbh = [self.Mbh0]  # Initial black hole mass.
-        rh = [self.rh0]  # Initial half mass radius.
+        rh = [self.rh0]  # Initial half-mass radius.
+        # Mval = [self.Mval0]  # Initial parameter for mass segregation.
 
         y = [Mst[0], Mbh[0], rh[0]]  # Combine them in a multivariable.
 
@@ -516,34 +687,40 @@ class clusterBH:
         sol = solve_ivp(self.odes, [0, self.tend], y,
                         method=self.integration_method, t_eval=t_eval)
 
-        self.t = [x / 1e3 for x in sol.t]  # Time in Gyrs.
-        self.t = np.array(self.t)
+        self.t = np.array([x / 1e3 for x in sol.t])  # Time in Gyrs.
         self.Mst = sol.y[0]  # Stellar mass.
         self.Mbh = sol.y[1]  # Black hole mass.
         self.rh = sol.y[2]  # Half mass radius
 
-        cbh = (self.Mbh > 0)  # Where the mass of black holes is present.
+        self.mbh = np.array([self._mbh(x) if y > self.tcc else self.mbh0
+                             for (x, y) in zip(self.Mbh, sol.t)])
 
-        # Upper mass of black holes in the mass function at each instance.
-        self.mmax = np.zeros_like(self.Mbh)
-        self.mmax[cbh] = self.find_mmax(self.Mbh[cbh])
+        self.Nbh = self.Mbh / self.mbh
 
-        # Some derived quantities.
+        cbh = (self.Mbh < self.mbh)  # Where no black holes
+
+        self.Mbh[cbh] = 0.
+        self.mbh[cbh] = 0.
+        self.Nbh[cbh] = 0.
 
         self.M = self.Mst + self.Mbh  # Total mass of the cluster.
         self.rt = self._rt(self.M)  # Tidal radius.
-        self.fbh = self.Mbh / self.M  # Black hole fraction.
-        self.psi = self._psi(self.fbh)  # Friction term ψ.
+        self.fbh = self.Mbh / self.M  # BH fraction.
 
-        # List of stellar average mass over time.
-        self.mst_av = [self._mst(x) for x in sol.t]
+        # Friction term ψ.
+        self.psi = np.array([self._psi(x, y, z, u) for (x, y, z, u)
+                             in zip(self.fbh, self.M, self.mbh, sol.t)])
+
+        # Average stellar mass over time.
+        self.mst_sev = np.array([self._mst(x) for x in sol.t])
 
         # Number of components.
-        self.Np = np.array([self._N(x, y, z) for (x, y, z)
-                            in zip(self.M, self.fbh, sol.t)])
+        self.Np = np.array([self._N(x, y, z, u) for (x, y, z, u)
+                            in zip(self.M, self.fbh, self.mbh, sol.t)])
 
-        # Average mass of cluster over time, includes black holes.
-        # No significant change is expected given that Nbh <= O(1e3).
+        # Average mass of cluster over time, includes BHs.
+        # No significant change is expected given that Nbh <= O(1e3),
+        # apart from the beginning where the difference is a few percent.
         self.mav = self.M / self.Np
 
         # Energy of the cluster at each time instance.
@@ -554,13 +731,11 @@ class clusterBH:
         self.rv = -self. G * self. M ** 2 / (4 * self.E)
 
         # Relaxation.
-        self.trh = np.array([self._trh(x, y, z, u) for (x, y, z, u)
-                             in zip(self.M, self.rh, self.fbh, sol.t)])
-
-        # output
-        if (self.output):
-            f = open(self.outfile, "w")
-            for i in range(len(self.t)):
-                f.write(f"{self.t[i]:12.5e} {self.Mbh[i]:12.5e} "
-                        f"{self.M[i]:12.5e} {self.rh[i]:12.5e}\n")
-            f.close()
+        self.trh = np.array(
+            [self._trh(x, y, z, u, v) for (x, y, z, u, v)
+             in zip(self.M, self.rh, self.fbh, self.mbh, sol.t)]
+        )
+        self.trhstar = np.array(
+            [self._trhstar(x, y, z, u, v) for (x, y, z, u, v)
+             in zip(self.M, self.rh, self.fbh, self.mbh, sol.t)]
+        )
